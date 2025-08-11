@@ -25,20 +25,24 @@ export function useChatGame(
 
 
   useEffect(() => {
-      setGameId("782be954-26ac-4bdf-89ed-cf460ae696c8");
+      setGameId("d15df0fe-814f-4e69-b4c4-e5d3a94bb64d");
 
     if (!gameId) return;
 
     async function loadInitial() {
-      const [responses, steps] = await Promise.all([
+      const [responses, system_response] = await Promise.all([
         supabase
           .from("player_responses")
           .select("user_id, content, created_at")
           .eq("room", gameId),
-        supabase
-          .from("scenario_steps")
-          .select("ai_markdown, created_at")
-          .eq("game_id", gameId),
+        // supabase
+        //   .from("scenario_steps")
+        //   .select("ai_markdown, created_at")
+        //   .eq("game_id", gameId),
+          supabase
+            .from("system_responses")
+            .select("content, created_at")
+            .eq("room", gameId)
       ]);
 
       const all = [
@@ -47,8 +51,13 @@ export function useChatGame(
           created_at: r.created_at,
           sender: r.user_id,
         })),
-        ...(steps.data || []).map((s) => ({
-          content: s.ai_markdown,
+        // ...(steps.data || []).map((s) => ({
+        //   content: s.ai_markdown,
+        //   created_at: s.created_at,
+        //   sender: "Scenario",
+        // })),
+                ...(system_response.data || []).map((s) => ({
+          content: s.content,
           created_at: s.created_at,
           sender: "Scenario",
         })),
@@ -62,13 +71,18 @@ export function useChatGame(
 
     loadInitial();
 
-    const channel = supabase.channel("chat_room_live");
+    // const channel = supabase.channel("chat_room_live");
+      // 2) Broadcast channel for live streaming
+  const channel = supabase.channel(`room:${gameId}`, {
+    config: { broadcast: { ack: true } },
+  });
 
     channel
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "player_responses" },
         (payload) => {
+          console.log({playerSubscription: payload})
           const msg = payload.new;
           setMessages((prev) => [
             ...prev,
@@ -80,15 +94,30 @@ export function useChatGame(
           ]);
         }
       )
-      .on(
+      // .on(
+      //   "postgres_changes",
+      //   { event: "INSERT", schema: "public", table: "scenario_steps" },
+      //   (payload) => {
+      //     const step = payload.new;
+      //     setMessages((prev) => [
+      //       ...prev,
+      //       {
+      //         content: step.content,
+      //         created_at: step.created_at,
+      //         sender: "Scenario",
+      //       },
+      //     ]);
+      //   }
+      // )
+            .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "scenario_steps" },
+        { event: "INSERT", schema: "public", table: "system_responses" },
         (payload) => {
           const step = payload.new;
           setMessages((prev) => [
             ...prev,
             {
-              content: step.ai_markdown,
+              content: step.content,
               created_at: step.created_at,
               sender: "Scenario",
             },
@@ -97,12 +126,9 @@ export function useChatGame(
       )
       .subscribe();
 
-  // 2) Broadcast channel for live streaming
-  const roomChannel = supabase.channel(`room:${gameId}`, {
-    config: { broadcast: { ack: true } },
-  });
 
-  roomChannel
+
+  channel
     .on("broadcast", { event: "scenario_chunk" }, (evt) => {
       const { streamKey, delta } = evt.payload as { streamKey: string; delta: string };
 
@@ -145,7 +171,7 @@ export function useChatGame(
     })
     .subscribe();
 
-  roomChannelRef.current = roomChannel;
+  roomChannelRef.current = channel;
 
   return () => {
     supabase.removeChannel(channel);
@@ -162,7 +188,7 @@ export function useChatGame(
     async (message: { message: any }) => {
       // TEMPORARILY PLAYING THE SAME GAME
       // const newId = crypto.randomUUID();
-      setGameId("782be954-26ac-4bdf-89ed-cf460ae696c8");
+      setGameId("d15df0fe-814f-4e69-b4c4-e5d3a94bb64d");
       // setMessages([]);
       // supabase
       //   .from("games")
@@ -187,7 +213,16 @@ export function useChatGame(
       await supabase
         .from("player_responses")
         .insert([{ room: gameId, user_id: currentUser.name, content: text }]);
+        const createdAt = new Date().toISOString();
 
+              setMessages((prev) => [
+        ...prev,
+        {
+          content: text,
+          created_at: createdAt,
+          sender: currentUser.name,
+        },
+      ]);
       // 2) call server to start AI stream
       setLoading(true);
       isStreamingRef.current = true;
@@ -297,20 +332,20 @@ export function useChatGame(
 
       // One final durable insert of the AI message
       if (fullText) {
-        await supabase.from("player_responses").insert([
-          { room: gameId, user_id: "Scenario", content: fullText },
-        ]);
+        // await supabase.from("player_responses").insert([
+        //   { room: gameId, user_id: "Scenario", content: fullText },
+        // ]);
       }
 
       // Sender also removes local pending to avoid double
-      setMessages((prev) => {
-        const next = prev.slice();
-        const i = streamingMsgIndexRef.current ?? idx;
-        if (next[i]?.sender === "Scenario" && next[i]?.content !== undefined) {
-          next.splice(i, 1);
-        }
-        return next;
-      });
+      // setMessages((prev) => {
+      //   const next = prev.slice();
+      //   const i = streamingMsgIndexRef.current ?? idx;
+      //   if (next[i]?.sender === "Scenario" && next[i]?.content !== undefined) {
+      //     next.splice(i, 1);
+      //   }
+      //   return next;
+      // });
       } catch (e) {
         console.error("stream error", e);
       } finally {

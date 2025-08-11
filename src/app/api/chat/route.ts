@@ -28,20 +28,64 @@ export async function POST(req: Request) {
 
   // const isFirstStep = new_response?.step_number === 0; //until steps are implemented
 
-  const { data: priorResponses } = await supabase
-    .from("player_responses")
-    .select("content, user_id")
-    .eq("room", gameId)
-    .order("created_at", { ascending: true });
+  // const { data: priorResponses } = await supabase
+  //   .from("player_responses")
+  //   .select("content, user_id, created_at")
+  //   .eq("room", gameId);
+
+  // const { data: systemResponses } = await supabase
+  //   .from("system_responses")
+  //   .select("content, created_at")
+  //   .eq("room", gameId);
 
 
-  const isFirstStep = priorResponses?.length == 1; 
+
+    ///
+      const [responses, system_response] = await Promise.all([
+        supabase
+          .from("player_responses")
+          .select("user_id, content, created_at")
+          .eq("room", gameId),
+        // supabase
+        //   .from("scenario_steps")
+        //   .select("ai_markdown, created_at")
+        //   .eq("game_id", gameId),
+          supabase
+            .from("system_responses")
+            .select("content, created_at")
+            .eq("room", gameId)
+      ]);
+
+      const all = [
+        ...(responses.data || []).map((r) => ({
+          content: `${r.user_id}: ${r.content}`,
+          created_at: r.created_at,
+          sender: r.user_id,
+        })),
+        // ...(steps.data || []).map((s) => ({
+        //   content: s.ai_markdown,
+        //   created_at: s.created_at,
+        //   sender: "Scenario",
+        // })),
+                ...(system_response.data || []).map((s) => ({
+          content: s.content,
+          created_at: s.created_at,
+          sender: "Scenario",
+        })),
+      ].sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+    ///
+
+  const isFirstStep = all?.length == 1; 
 
   console.log({isFirstStep})
   const responseMessages =
-    priorResponses?.map((r: any) => ({
-      role: r.user_id == 'System' ? 'assistant' : 'user',
-      content: `${r.user_id} responds: ${r.content}`,
+    all?.map((r: any) => ({
+      role: r.sender == 'Scenario' ? 'assistant' : 'user',
+      content: `${r.content}`,
     })) || [];
 
   if (new_response?.user_id && new_response?.content) {
@@ -118,25 +162,25 @@ console.log({responseMessages})
         }
 
         // determine step number
-        let stepNumber = 0;
-        if (new_response?.step_number !== undefined) {
-          stepNumber = new_response.step_number;
-        } else {
-          const { data: existing } = await supabase
-            .from("scenario_steps")
-            .select("step_number")
-            .eq("game_id", gameId)
-            .order("step_number", { ascending: false })
-            .limit(1);
+        // let stepNumber = 0;
+        // if (new_response?.step_number !== undefined) {
+        //   stepNumber = new_response.step_number;
+        // } else {
+        //   const { data: existing } = await supabase
+        //     .from("scenario_steps")
+        //     .select("step_number")
+        //     .eq("game_id", gameId)
+        //     .order("step_number", { ascending: false })
+        //     .limit(1);
 
-          stepNumber = existing?.[0]?.step_number + 1 || 0;
-        }
+        //   stepNumber = existing?.[0]?.step_number + 1 || 0;
+        // }
 
         await supabase.from("system_responses").insert([
           {
             room: gameId,
             content: cleanNarrative.trim(),
-            step_number: stepNumber,
+            // step_number: stepNumber,
           },
         ]);
       }
